@@ -8,11 +8,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repository
-      - name: Checkout code
+      # Checkout the code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Configure AWS credentials (for Terraform)
+      # Configure AWS credentials for Terraform
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -26,9 +26,9 @@ jobs:
         with:
           terraform_version: "1.5.5"
 
-      # Terraform Init
+      # Terraform Init with reconfigure
       - name: Terraform Init
-        run: terraform -chdir=terraform init -input=false
+        run: terraform -chdir=terraform init -reconfigure -input=false
 
       # Terraform Plan
       - name: Terraform Plan
@@ -44,7 +44,6 @@ jobs:
 
       # Terraform Apply
       - name: Terraform Apply
-        if: github.event_name == 'workflow_dispatch'
         run: |
           terraform -chdir=terraform apply -auto-approve \
             -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
@@ -54,3 +53,20 @@ jobs:
             -var="strapi_admin_jwt_secret=${{ secrets.TF_VAR_strapi_admin_jwt_secret }}" \
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
+
+      # Force ECS to pick up new task definition
+      - name: Force ECS Service New Deployment
+        run: |
+          aws ecs update-service \
+            --cluster karuna-ecs-cluster \
+            --service karuna-service \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}
+
+      # Optional: Show the deployed service details
+      - name: Describe ECS Service
+        run: |
+          aws ecs describe-services \
+            --cluster karuna-ecs-cluster \
+            --services karuna-service \
+            --region ${{ secrets.AWS_REGION }}
