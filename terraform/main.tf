@@ -259,7 +259,7 @@ resource "aws_ecs_task_definition" "karuna_task" {
         { name = "DATABASE_NAME",       value = var.db_name },
         { name = "DATABASE_USERNAME",   value = var.db_username },
         { name = "DATABASE_PASSWORD",   value = var.db_password },
-        { name = "DATABASE_SSL",        value = "true" },
+        { name = "DATABASE_SSL",        value = "false" },
         { name = "DB_SSL_REJECT_UNAUTHORIZED", value = "false" },
         # Strapi secrets
         { name = "APP_KEYS",           value = var.strapi_app_keys },
