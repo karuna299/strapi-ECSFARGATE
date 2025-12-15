@@ -1,0 +1,59 @@
+name: Terraform Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform_deploy:
+    name: Terraform Deploy to AWS
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1) Checkout repo
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2) Configure AWS credentials for Terraform
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # 3) Set up Terraform CLI
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.5"
+
+      # 4) Terraform Init (with backend)
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+
+      # 5) Terraform Plan
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: terraform plan -input=false \
+          -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
+          -var="db_name=${{ secrets.TF_VAR_db_name }}" \
+          -var="db_username=${{ secrets.TF_VAR_db_username }}" \
+          -var="db_password=${{ secrets.TF_VAR_db_password }}" \
+          -var="strapi_admin_jwt_secret=${{ secrets.TF_VAR_strapi_admin_jwt_secret }}" \
+          -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
+          -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
+
+      # 6) Terraform Apply
+      - name: Terraform Apply
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: ./terraform
+        run: terraform apply -auto-approve \
+          -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
+          -var="db_name=${{ secrets.TF_VAR_db_name }}" \
+          -var="db_username=${{ secrets.TF_VAR_db_username }}" \
+          -var="db_password=${{ secrets.TF_VAR_db_password }}" \
+          -var="strapi_admin_jwt_secret=${{ secrets.TF_VAR_strapi_admin_jwt_secret }}" \
+          -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
+          -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
