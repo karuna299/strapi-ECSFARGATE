@@ -24,39 +24,56 @@ data "aws_vpc" "default" {
 data "aws_availability_zones" "available" {}
 
 ##############################################
-# Create Your Own Public Subnet (No Overlap)
-# Change CIDR as needed if this conflicts
+# Public Subnets (2 AZs) — for ECS
 ##############################################
-resource "aws_subnet" "karuna_public_subnet" {
+resource "aws_subnet" "karuna_public_subnet_1" {
   vpc_id                  = data.aws_vpc.default.id
-  cidr_block              = "172.31.128.0/24"   # Custom, non-conflicting
+  cidr_block              = "172.31.128.0/24"
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "karuna-public-subnet"
+    Name = "karuna-public-subnet-1"
   }
 }
 
-##############################################
-# Create Your Own Private Subnet (No Overlap)
-##############################################
-resource "aws_subnet" "karuna_private_subnet" {
+resource "aws_subnet" "karuna_public_subnet_2" {
   vpc_id                  = data.aws_vpc.default.id
-  cidr_block              = "172.31.129.0/24"   # Custom, non-conflicting
-  availability_zone       = data.aws_availability_zones.available.names[0]
-  map_public_ip_on_launch = false
+  cidr_block              = "172.31.129.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[1]
+  map_public_ip_on_launch = true
 
   tags = {
-    Name = "karuna-private-subnet"
+    Name = "karuna-public-subnet-2"
   }
 }
 
 ##############################################
-# Route Table for Public Subnet (attach to existing IGW)
+# Private Subnets (2 AZs) — for RDS
 ##############################################
+resource "aws_subnet" "karuna_private_subnet_1" {
+  vpc_id            = data.aws_vpc.default.id
+  cidr_block        = "172.31.200.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
 
-# Get the existing Internet Gateway attached to default VPC
+  tags = {
+    Name = "karuna-private-subnet-1"
+  }
+}
+
+resource "aws_subnet" "karuna_private_subnet_2" {
+  vpc_id            = data.aws_vpc.default.id
+  cidr_block        = "172.31.201.0/24"
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = {
+    Name = "karuna-private-subnet-2"
+  }
+}
+
+##############################################
+# Existing Internet Gateway
+##############################################
 data "aws_internet_gateway" "default" {
   filter {
     name   = "attachment.vpc-id"
@@ -64,6 +81,9 @@ data "aws_internet_gateway" "default" {
   }
 }
 
+##############################################
+# Public Route Table & Associations
+##############################################
 resource "aws_route_table" "karuna_public_rt" {
   vpc_id = data.aws_vpc.default.id
 
@@ -73,22 +93,26 @@ resource "aws_route_table" "karuna_public_rt" {
   }
 }
 
-resource "aws_route_table_association" "karuna_public_rta" {
-  subnet_id      = aws_subnet.karuna_public_subnet.id
+resource "aws_route_table_association" "karuna_public_rta_1" {
+  subnet_id      = aws_subnet.karuna_public_subnet_1.id
+  route_table_id = aws_route_table.karuna_public_rt.id
+}
+
+resource "aws_route_table_association" "karuna_public_rta_2" {
+  subnet_id      = aws_subnet.karuna_public_subnet_2.id
   route_table_id = aws_route_table.karuna_public_rt.id
 }
 
 ##############################################
-# NAT Gateway for Private Subnet
+# NAT Gateway and Private Route Table
 ##############################################
-
 resource "aws_eip" "karuna_nat_eip" {
   domain = "vpc"
 }
 
 resource "aws_nat_gateway" "karuna_nat" {
   allocation_id = aws_eip.karuna_nat_eip.id
-  subnet_id     = aws_subnet.karuna_public_subnet.id
+  subnet_id     = aws_subnet.karuna_public_subnet_1.id
 
   tags = {
     Name = "karuna-nat-gateway"
@@ -104,19 +128,23 @@ resource "aws_route_table" "karuna_private_rt" {
   }
 }
 
-resource "aws_route_table_association" "karuna_private_rta" {
-  subnet_id      = aws_subnet.karuna_private_subnet.id
+resource "aws_route_table_association" "karuna_private_rta_1" {
+  subnet_id      = aws_subnet.karuna_private_subnet_1.id
+  route_table_id = aws_route_table.karuna_private_rt.id
+}
+
+resource "aws_route_table_association" "karuna_private_rta_2" {
+  subnet_id      = aws_subnet.karuna_private_subnet_2.id
   route_table_id = aws_route_table.karuna_private_rt.id
 }
 
 ##############################################
-# Security Groups (Public + DB)
+# Security Groups
 ##############################################
 resource "aws_security_group" "karuna_sg_public" {
   name   = "karuna-sg-public"
   vpc_id = data.aws_vpc.default.id
 
-  # HTTP from anywhere
   ingress {
     from_port   = 80
     to_port     = 80
@@ -136,7 +164,6 @@ resource "aws_security_group" "karuna_sg_db" {
   name   = "karuna-sg-db"
   vpc_id = data.aws_vpc.default.id
 
-  # Allow ECS public SG to access DB on port 5432
   ingress {
     from_port       = 5432
     to_port         = 5432
@@ -160,18 +187,21 @@ resource "aws_ecs_cluster" "karuna_cluster" {
 }
 
 ##############################################
-# Reference ECR Repository
+# ECR Repository Reference
 ##############################################
 data "aws_ecr_repository" "karuna_repo" {
   name = var.ecr_repository_name
 }
 
 ##############################################
-# RDS PostgreSQL (Private Subnet Group)
+# RDS - DB Subnet Group & Instance
 ##############################################
 resource "aws_db_subnet_group" "karuna_db_subnet" {
   name       = "karuna-db-subnet"
-  subnet_ids = [aws_subnet.karuna_private_subnet.id]
+  subnet_ids = [
+    aws_subnet.karuna_private_subnet_1.id,
+    aws_subnet.karuna_private_subnet_2.id
+  ]
 
   tags = {
     Name = "karuna-db-subnet"
@@ -179,18 +209,19 @@ resource "aws_db_subnet_group" "karuna_db_subnet" {
 }
 
 resource "aws_db_instance" "karuna_postgres" {
-  identifier             = "karuna-rds-postgres"
-  engine                 = "postgres"
-  instance_class         = var.db_instance_class
-  allocated_storage      = 20
-  db_name                = var.db_name
-  username               = var.db_username
-  password               = var.db_password
-  db_subnet_group_name   = aws_db_subnet_group.karuna_db_subnet.id
-  vpc_security_group_ids = [aws_security_group.karuna_sg_db.id]
-
-  skip_final_snapshot   = true
-  publicly_accessible   = false
+  identifier           = "karuna-rds-postgres"
+  engine               = "postgres"
+  instance_class       = var.db_instance_class
+  allocated_storage    = 20
+  db_name              = var.db_name
+  username             = var.db_username
+  password             = var.db_password
+  db_subnet_group_name = aws_db_subnet_group.karuna_db_subnet.id
+  vpc_security_group_ids = [
+    aws_security_group.karuna_sg_db.id
+  ]
+  skip_final_snapshot = true
+  publicly_accessible = false
 }
 
 ##############################################
@@ -250,7 +281,8 @@ resource "aws_ecs_service" "karuna_service" {
 
   network_configuration {
     subnets         = [
-      aws_subnet.karuna_public_subnet.id
+      aws_subnet.karuna_public_subnet_1.id,
+      aws_subnet.karuna_public_subnet_2.id
     ]
     security_groups = [
       aws_security_group.karuna_sg_public.id
