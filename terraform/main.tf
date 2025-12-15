@@ -32,9 +32,7 @@ resource "aws_subnet" "karuna_public_subnet_1" {
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
-  tags = {
-    Name = "karuna-public-subnet-1"
-  }
+  tags = { Name = "karuna-public-subnet-1" }
 }
 
 resource "aws_subnet" "karuna_public_subnet_2" {
@@ -43,9 +41,7 @@ resource "aws_subnet" "karuna_public_subnet_2" {
   availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
 
-  tags = {
-    Name = "karuna-public-subnet-2"
-  }
+  tags = { Name = "karuna-public-subnet-2" }
 }
 
 ##############################################
@@ -56,9 +52,7 @@ resource "aws_subnet" "karuna_private_subnet_1" {
   cidr_block        = "172.31.200.0/24"
   availability_zone = data.aws_availability_zones.available.names[0]
 
-  tags = {
-    Name = "karuna-private-subnet-1"
-  }
+  tags = { Name = "karuna-private-subnet-1" }
 }
 
 resource "aws_subnet" "karuna_private_subnet_2" {
@@ -66,13 +60,11 @@ resource "aws_subnet" "karuna_private_subnet_2" {
   cidr_block        = "172.31.201.0/24"
   availability_zone = data.aws_availability_zones.available.names[1]
 
-  tags = {
-    Name = "karuna-private-subnet-2"
-  }
+  tags = { Name = "karuna-private-subnet-2" }
 }
 
 ##############################################
-# Existing Internet Gateway
+# Existing Internet Gateway (from default VPC)
 ##############################################
 data "aws_internet_gateway" "default" {
   filter {
@@ -82,7 +74,7 @@ data "aws_internet_gateway" "default" {
 }
 
 ##############################################
-# Public Route Table & Associations
+# Public Route Table
 ##############################################
 resource "aws_route_table" "karuna_public_rt" {
   vpc_id = data.aws_vpc.default.id
@@ -104,7 +96,7 @@ resource "aws_route_table_association" "karuna_public_rta_2" {
 }
 
 ##############################################
-# NAT Gateway and Private Route Table
+# NAT Gateway in Public Subnet
 ##############################################
 resource "aws_eip" "karuna_nat_eip" {
   domain = "vpc"
@@ -114,9 +106,7 @@ resource "aws_nat_gateway" "karuna_nat" {
   allocation_id = aws_eip.karuna_nat_eip.id
   subnet_id     = aws_subnet.karuna_public_subnet_1.id
 
-  tags = {
-    Name = "karuna-nat-gateway"
-  }
+  tags = { Name = "karuna-nat-gateway" }
 }
 
 resource "aws_route_table" "karuna_private_rt" {
@@ -194,7 +184,32 @@ data "aws_ecr_repository" "karuna_repo" {
 }
 
 ##############################################
-# RDS - DB Subnet Group & Instance
+# IAM Role for ECS Task Execution
+##############################################
+resource "aws_iam_role" "karuna_ecs_task_execution_role" {
+  name = "karuna-ecs-task-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "karuna_ecs_task_execution_role_attach" {
+  role       = aws_iam_role.karuna_ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+##############################################
+# RDS — DB Subnet Group & Instance
 ##############################################
 resource "aws_db_subnet_group" "karuna_db_subnet" {
   name       = "karuna-db-subnet"
@@ -203,36 +218,35 @@ resource "aws_db_subnet_group" "karuna_db_subnet" {
     aws_subnet.karuna_private_subnet_2.id
   ]
 
-  tags = {
-    Name = "karuna-db-subnet"
-  }
+  tags = { Name = "karuna-db-subnet" }
 }
 
 resource "aws_db_instance" "karuna_postgres" {
-  identifier           = "karuna-rds-postgres"
-  engine               = "postgres"
-  instance_class       = var.db_instance_class
-  allocated_storage    = 20
-  db_name              = var.db_name
-  username             = var.db_username
-  password             = var.db_password
-  db_subnet_group_name = aws_db_subnet_group.karuna_db_subnet.id
-  vpc_security_group_ids = [
-    aws_security_group.karuna_sg_db.id
-  ]
-  skip_final_snapshot = true
-  publicly_accessible = false
+  identifier             = "karuna-rds-postgres"
+  engine                 = "postgres"
+  instance_class         = var.db_instance_class
+  allocated_storage      = 20
+  db_name                = var.db_name
+  username               = var.db_username
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.karuna_db_subnet.id
+  vpc_security_group_ids = [aws_security_group.karuna_sg_db.id]
+
+  skip_final_snapshot   = true
+  publicly_accessible   = false
 }
 
 ##############################################
-# ECS Task Definition
+# ECS Task Definition (with execution role)
 ##############################################
 resource "aws_ecs_task_definition" "karuna_task" {
   family                   = "karuna-task"
-  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
   cpu                      = "512"
   memory                   = "1024"
+
+  execution_role_arn = aws_iam_role.karuna_ecs_task_execution_role.arn
 
   container_definitions = jsonencode([
     {
@@ -282,7 +296,7 @@ resource "aws_ecs_service" "karuna_service" {
   network_configuration {
     subnets         = [
       aws_subnet.karuna_public_subnet_1.id,
-      aws_subnet.karuna_public_subnet_2.id
+      aws_subnet.karuna_public_subnet_2.id,
     ]
     security_groups = [
       aws_security_group.karuna_sg_public.id
