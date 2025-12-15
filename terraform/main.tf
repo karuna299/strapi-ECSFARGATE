@@ -1,5 +1,5 @@
 ##############################################
-# Provider
+# Provider & Requirements
 ##############################################
 terraform {
   required_providers {
@@ -15,25 +15,21 @@ provider "aws" {
 }
 
 ##############################################
-# Default VPC & AZ Data
+# Default VPC Reference
 ##############################################
-
-# Get default VPC
 data "aws_vpc" "default" {
   default = true
 }
 
-# Get availability zones to distribute subnets
 data "aws_availability_zones" "available" {}
 
 ##############################################
-# Subnets inside default VPC
+# Create Your Own Public Subnet (No Overlap)
+# Change CIDR as needed if this conflicts
 ##############################################
-
-# Public subnet for ECS (first AZ)
 resource "aws_subnet" "karuna_public_subnet" {
   vpc_id                  = data.aws_vpc.default.id
-  cidr_block              = cidrsubnet(data.aws_vpc.default.cidr_block, 8, 1)
+  cidr_block              = "172.31.128.0/24"   # Custom, non-conflicting
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
@@ -42,11 +38,14 @@ resource "aws_subnet" "karuna_public_subnet" {
   }
 }
 
-# Private subnet for RDS (first AZ)
+##############################################
+# Create Your Own Private Subnet (No Overlap)
+##############################################
 resource "aws_subnet" "karuna_private_subnet" {
-  vpc_id            = data.aws_vpc.default.id
-  cidr_block        = cidrsubnet(data.aws_vpc.default.cidr_block, 8, 2)
-  availability_zone = data.aws_availability_zones.available.names[0]
+  vpc_id                  = data.aws_vpc.default.id
+  cidr_block              = "172.31.129.0/24"   # Custom, non-conflicting
+  availability_zone       = data.aws_availability_zones.available.names[0]
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "karuna-private-subnet"
@@ -54,13 +53,14 @@ resource "aws_subnet" "karuna_private_subnet" {
 }
 
 ##############################################
-# Internet Gateway + Route for Public
+# Route Table for Public Subnet (attach to existing IGW)
 ##############################################
 
-resource "aws_internet_gateway" "karuna_igw" {
-  vpc_id = data.aws_vpc.default.id
-  tags = {
-    Name = "karuna-igw"
+# Get the existing Internet Gateway attached to default VPC
+data "aws_internet_gateway" "default" {
+  filter {
+    name   = "attachment.vpc-id"
+    values = [data.aws_vpc.default.id]
   }
 }
 
@@ -69,7 +69,7 @@ resource "aws_route_table" "karuna_public_rt" {
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.karuna_igw.id
+    gateway_id = data.aws_internet_gateway.default.id
   }
 }
 
@@ -79,7 +79,7 @@ resource "aws_route_table_association" "karuna_public_rta" {
 }
 
 ##############################################
-# NAT Gateway for Private Subnet Egress
+# NAT Gateway for Private Subnet
 ##############################################
 
 resource "aws_eip" "karuna_nat_eip" {
@@ -110,13 +110,13 @@ resource "aws_route_table_association" "karuna_private_rta" {
 }
 
 ##############################################
-# Security Groups for ECS & RDS
+# Security Groups (Public + DB)
 ##############################################
-
 resource "aws_security_group" "karuna_sg_public" {
   name   = "karuna-sg-public"
   vpc_id = data.aws_vpc.default.id
 
+  # HTTP from anywhere
   ingress {
     from_port   = 80
     to_port     = 80
@@ -136,7 +136,7 @@ resource "aws_security_group" "karuna_sg_db" {
   name   = "karuna-sg-db"
   vpc_id = data.aws_vpc.default.id
 
-  # Allow only ECS SG to access DB on port 5432
+  # Allow ECS public SG to access DB on port 5432
   ingress {
     from_port       = 5432
     to_port         = 5432
@@ -155,7 +155,6 @@ resource "aws_security_group" "karuna_sg_db" {
 ##############################################
 # ECS Cluster
 ##############################################
-
 resource "aws_ecs_cluster" "karuna_cluster" {
   name = "karuna-ecs-cluster"
 }
@@ -163,15 +162,13 @@ resource "aws_ecs_cluster" "karuna_cluster" {
 ##############################################
 # Reference ECR Repository
 ##############################################
-
 data "aws_ecr_repository" "karuna_repo" {
   name = var.ecr_repository_name
 }
 
 ##############################################
-# RDS PostgreSQL in Private Subnet
+# RDS PostgreSQL (Private Subnet Group)
 ##############################################
-
 resource "aws_db_subnet_group" "karuna_db_subnet" {
   name       = "karuna-db-subnet"
   subnet_ids = [aws_subnet.karuna_private_subnet.id]
@@ -192,14 +189,13 @@ resource "aws_db_instance" "karuna_postgres" {
   db_subnet_group_name   = aws_db_subnet_group.karuna_db_subnet.id
   vpc_security_group_ids = [aws_security_group.karuna_sg_db.id]
 
-  skip_final_snapshot     = true
-  publicly_accessible     = false
+  skip_final_snapshot   = true
+  publicly_accessible   = false
 }
 
 ##############################################
-# ECS Task Definition (Fargate)
+# ECS Task Definition
 ##############################################
-
 resource "aws_ecs_task_definition" "karuna_task" {
   family                   = "karuna-task"
   network_mode             = "awsvpc"
@@ -244,9 +240,8 @@ resource "aws_ecs_task_definition" "karuna_task" {
 }
 
 ##############################################
-# ECS Service (Fargate)
+# ECS Service
 ##############################################
-
 resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
@@ -254,8 +249,12 @@ resource "aws_ecs_service" "karuna_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [aws_subnet.karuna_public_subnet.id]
-    security_groups = [aws_security_group.karuna_sg_public.id]
+    subnets         = [
+      aws_subnet.karuna_public_subnet.id
+    ]
+    security_groups = [
+      aws_security_group.karuna_sg_public.id
+    ]
     assign_public_ip = true
   }
 
