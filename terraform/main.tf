@@ -169,10 +169,15 @@ resource "aws_security_group" "karuna_sg_db" {
 }
 
 ##############################################
-# ECS Cluster
+# ECS Cluster (Added only: Container Insights)
 ##############################################
 resource "aws_ecs_cluster" "karuna_cluster" {
   name = "karuna-ecs-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 ##############################################
@@ -300,4 +305,37 @@ resource "aws_ecs_service" "karuna_service" {
   }
 
   desired_count = 1
+}
+
+
+##############################################
+# CloudWatch Dashboard (Only High CPU & Memory)
+##############################################
+resource "aws_cloudwatch_dashboard" "karuna_ecs_dashboard" {
+  dashboard_name = "karuna-ecs-dashboard"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type = "metric",
+
+
+        x    = 0,
+        y    = 0,
+        width  = 24,
+        height = 6,
+        properties = {
+          metrics = [
+            [ "AWS/ECS", "CPUUtilization", "ClusterName", "${aws_ecs_cluster.karuna_cluster.name}", "ServiceName", "${aws_ecs_service.karuna_service.name}" ],
+            [ ".", "MemoryUtilization", ".", ".", ".", "." ]
+          ],
+          title     = "ECS CPU & Memory Utilization",
+          view      = "timeSeries",
+          region    = var.region,
+          period    = 300,
+          stat      = "Average"
+        }
+      }
+    ]
+  })
 }
