@@ -30,15 +30,4 @@ output "public_subnet_ids" {
   ]
 }
 
-output "private_subnet_ids" {
-  description = "The IDs of the private subnets for RDS"
-  value = [
-    aws_subnet.karuna_private_subnet_1.id,
-    aws_subnet.karuna_private_subnet_2.id,
-  ]
-}
 
-output "nat_gateway_id" {
-  description = "The NAT Gateway ID"
-  value       = aws_nat_gateway.karuna_nat.id
-}

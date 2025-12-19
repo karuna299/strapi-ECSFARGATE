@@ -32,7 +32,7 @@ resource "aws_cloudwatch_log_group" "karuna_strapi" {
 }
 
 ##############################################
-# Public Subnets (2 AZs)
+# Public Subnets (ONLY)
 ##############################################
 resource "aws_subnet" "karuna_public_subnet_1" {
   vpc_id                  = data.aws_vpc.default.id
@@ -51,24 +51,7 @@ resource "aws_subnet" "karuna_public_subnet_2" {
 }
 
 ##############################################
-# Private Subnets (2 AZs) for RDS
-##############################################
-resource "aws_subnet" "karuna_private_subnet_1" {
-  vpc_id            = data.aws_vpc.default.id
-  cidr_block        = "172.31.200.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
-  tags = { Name = "karuna-private-subnet-1" }
-}
-
-resource "aws_subnet" "karuna_private_subnet_2" {
-  vpc_id            = data.aws_vpc.default.id
-  cidr_block        = "172.31.201.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1]
-  tags = { Name = "karuna-private-subnet-2" }
-}
-
-##############################################
-# Default Internet Gateway
+# Internet Gateway
 ##############################################
 data "aws_internet_gateway" "default" {
   filter {
@@ -87,44 +70,15 @@ resource "aws_route_table" "karuna_public_rt" {
     gateway_id = data.aws_internet_gateway.default.id
   }
 }
+
 resource "aws_route_table_association" "karuna_public_rta_1" {
   subnet_id      = aws_subnet.karuna_public_subnet_1.id
   route_table_id = aws_route_table.karuna_public_rt.id
 }
+
 resource "aws_route_table_association" "karuna_public_rta_2" {
   subnet_id      = aws_subnet.karuna_public_subnet_2.id
   route_table_id = aws_route_table.karuna_public_rt.id
-}
-
-##############################################
-# NAT + Private Routing
-##############################################
-resource "aws_eip" "karuna_nat_eip" {
-  domain = "vpc"
-}
-
-resource "aws_nat_gateway" "karuna_nat" {
-  subnet_id     = aws_subnet.karuna_public_subnet_1.id
-  allocation_id = aws_eip.karuna_nat_eip.id
-  tags = { Name = "karuna-nat-gateway" }
-}
-
-resource "aws_route_table" "karuna_private_rt" {
-  vpc_id = data.aws_vpc.default.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.karuna_nat.id
-  }
-}
-
-resource "aws_route_table_association" "karuna_private_rta_1" {
-  subnet_id      = aws_subnet.karuna_private_subnet_1.id
-  route_table_id = aws_route_table.karuna_private_rt.id
-}
-
-resource "aws_route_table_association" "karuna_private_rta_2" {
-  subnet_id      = aws_subnet.karuna_private_subnet_2.id
-  route_table_id = aws_route_table.karuna_private_rt.id
 }
 
 ##############################################
@@ -169,7 +123,7 @@ resource "aws_security_group" "karuna_sg_db" {
 }
 
 ##############################################
-# ECS Cluster (Added only: Container Insights)
+# ECS Cluster (Container Insights enabled)
 ##############################################
 resource "aws_ecs_cluster" "karuna_cluster" {
   name = "karuna-ecs-cluster"
@@ -188,19 +142,17 @@ data "aws_ecr_repository" "karuna_repo" {
 }
 
 ##############################################
-# ECS Task Execution Role
+# IAM Role
 ##############################################
 resource "aws_iam_role" "karuna_ecs_task_execution_role" {
   name = "karuna-ecs-task-execution-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = { Service = "ecs-tasks.amazonaws.com" }
-      }
-    ]
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
   })
 }
 
@@ -210,17 +162,8 @@ resource "aws_iam_role_policy_attachment" "karuna_ecs_task_execution_role_attach
 }
 
 ##############################################
-# RDS Subnet Group & PostgreSQL
+# RDS (PUBLIC, NO PRIVATE SUBNETS)
 ##############################################
-resource "aws_db_subnet_group" "karuna_db_subnet" {
-  name       = "karuna-db-subnet"
-  subnet_ids = [
-    aws_subnet.karuna_private_subnet_1.id,
-    aws_subnet.karuna_private_subnet_2.id
-  ]
-  tags = { Name = "karuna-db-subnet" }
-}
-
 resource "aws_db_instance" "karuna_postgres" {
   identifier             = "karuna-rds-postgres"
   engine                 = "postgres"
@@ -229,15 +172,13 @@ resource "aws_db_instance" "karuna_postgres" {
   db_name                = var.db_name
   username               = var.db_username
   password               = var.db_password
-  db_subnet_group_name   = aws_db_subnet_group.karuna_db_subnet.id
+  publicly_accessible    = true
   vpc_security_group_ids = [aws_security_group.karuna_sg_db.id]
-
-  skip_final_snapshot   = true
-  publicly_accessible   = false
+  skip_final_snapshot    = true
 }
 
 ##############################################
-# ECS Task Definition (PostgreSQL + Logging)
+# ECS Task Definition (UNCHANGED)
 ##############################################
 resource "aws_ecs_task_definition" "karuna_task" {
   family                   = "karuna-task"
@@ -247,47 +188,40 @@ resource "aws_ecs_task_definition" "karuna_task" {
   memory                   = "1024"
   execution_role_arn       = aws_iam_role.karuna_ecs_task_execution_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name  = "karuna-strapi"
-      image = "${data.aws_ecr_repository.karuna_repo.repository_url}:latest"
+  container_definitions = jsonencode([{
+    name  = "karuna-strapi"
+    image = "${data.aws_ecr_repository.karuna_repo.repository_url}:latest"
 
-      portMappings = [
-        { containerPort = 1337, hostPort = 1337 }
-      ]
+    portMappings = [{ containerPort = 1337, hostPort = 1337 }]
 
-      environment = [
-        # PostgreSQL connection settings
-        { name = "DATABASE_CLIENT",     value = "postgres" },
-        { name = "DATABASE_HOST",       value = aws_db_instance.karuna_postgres.address },
-        { name = "DATABASE_PORT",       value = "5432" },
-        { name = "DATABASE_NAME",       value = var.db_name },
-        { name = "DATABASE_USERNAME",   value = var.db_username },
-        { name = "DATABASE_PASSWORD",   value = var.db_password },
-        { name = "DATABASE_SSL",                        value = "true" },
-        { name = "DATABASE_SSL_REJECT_UNAUTHORIZED",    value = "false" },
+    environment = [
+      { name = "DATABASE_CLIENT", value = "postgres" },
+      { name = "DATABASE_HOST", value = aws_db_instance.karuna_postgres.address },
+      { name = "DATABASE_PORT", value = "5432" },
+      { name = "DATABASE_NAME", value = var.db_name },
+      { name = "DATABASE_USERNAME", value = var.db_username },
+      { name = "DATABASE_PASSWORD", value = var.db_password },
+      { name = "DATABASE_SSL", value = "true" },
+      { name = "DATABASE_SSL_REJECT_UNAUTHORIZED", value = "false" },
+      { name = "APP_KEYS", value = var.strapi_app_keys },
+      { name = "API_TOKEN_SALT", value = var.strapi_api_token_salt },
+      { name = "ADMIN_JWT_SECRET", value = var.strapi_admin_jwt_secret },
+      { name = "JWT_SECRET", value = var.strapi_admin_jwt_secret }
+    ]
 
-        # Strapi secrets
-        { name = "APP_KEYS",           value = var.strapi_app_keys },
-        { name = "API_TOKEN_SALT",     value = var.strapi_api_token_salt },
-        { name = "ADMIN_JWT_SECRET",   value = var.strapi_admin_jwt_secret },
-        { name = "JWT_SECRET",         value = var.strapi_admin_jwt_secret }
-      ]
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = "/ecs/karuna-strapi"
-          "awslogs-region"        = var.region
-          "awslogs-stream-prefix" = "ecs"
-        }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = "/ecs/karuna-strapi"
+        awslogs-region        = var.region
+        awslogs-stream-prefix = "ecs"
       }
     }
-  ])
+  }])
 }
 
 ##############################################
-# ECS Service
+# ECS Service + ALB (Task 8)
 ##############################################
 resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
@@ -296,15 +230,95 @@ resource "aws_ecs_service" "karuna_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [
-      aws_subnet.karuna_public_subnet_1.id,
-      aws_subnet.karuna_public_subnet_2.id
-    ]
+    subnets         = [aws_subnet.karuna_public_subnet_1.id, aws_subnet.karuna_public_subnet_2.id]
     security_groups = [aws_security_group.karuna_sg_public.id]
     assign_public_ip = true
   }
 
   desired_count = 1
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.karuna_tg.arn
+    container_name   = "karuna-strapi"
+    container_port   = 1337
+  }
+}
+
+##############################################
+# ALB Security Group
+##############################################
+resource "aws_security_group" "karuna_sg_alb" {
+  name   = "karuna-sg-alb"
+  vpc_id = data.aws_vpc.default.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "karuna-sg-alb" }
+}
+
+##############################################
+# Application Load Balancer
+##############################################
+resource "aws_lb" "karuna_alb" {
+  name               = "karuna-alb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = [
+    aws_subnet.karuna_public_subnet_1.id,
+    aws_subnet.karuna_public_subnet_2.id
+  ]
+  security_groups = [aws_security_group.karuna_sg_alb.id]
+
+  tags = { Name = "karuna-alb" }
+}
+
+##############################################
+# Target Group (Fargate = IP)
+##############################################
+resource "aws_lb_target_group" "karuna_tg" {
+  name        = "karuna-tg"
+  port        = 1337
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/admin"
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+
+  tags = { Name = "karuna-tg" }
+}
+
+##############################################
+# ALB Listener
+##############################################
+resource "aws_lb_listener" "karuna_listener" {
+  load_balancer_arn = aws_lb.karuna_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.karuna_tg.arn
+  }
 }
 
 
@@ -317,23 +331,35 @@ resource "aws_cloudwatch_dashboard" "karuna_ecs_dashboard" {
   dashboard_body = jsonencode({
     widgets = [
       {
-        type = "metric",
-
-
-        x    = 0,
-        y    = 0,
+        type   = "metric",
+        x      = 0,
+        y      = 0,
         width  = 24,
         height = 6,
         properties = {
           metrics = [
-            [ "AWS/ECS", "CPUUtilization", "ClusterName", "${aws_ecs_cluster.karuna_cluster.name}", "ServiceName", "${aws_ecs_service.karuna_service.name}" ],
-            [ ".", "MemoryUtilization", ".", ".", ".", "." ]
-          ],
-          title     = "ECS CPU & Memory Utilization",
-          view      = "timeSeries",
-          region    = var.region,
-          period    = 300,
+            [
+              "AWS/ECS",
+              "CPUUtilization",
+              "ClusterName",
+              aws_ecs_cluster.karuna_cluster.name,
+              "ServiceName",
+              aws_ecs_service.karuna_service.name
+            ],
+            [
+              "AWS/ECS",
+              "MemoryUtilization",
+              "ClusterName",
+              aws_ecs_cluster.karuna_cluster.name,
+              "ServiceName",
+              aws_ecs_service.karuna_service.name
+            ]
+          ]
+          view      = "timeSeries"
+          region    = var.region
           stat      = "Average"
+          period    = 300
+          title     = "ECS CPU & Memory Utilization"
         }
       }
     ]
