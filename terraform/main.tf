@@ -221,16 +221,23 @@ resource "aws_ecs_task_definition" "karuna_task" {
 }
 
 ##############################################
-# ECS Service + ALB (Task 8)
+# ECS Service + ALB
 ##############################################
 resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
   task_definition = aws_ecs_task_definition.karuna_task.arn
-  launch_type     = "FARGATE"
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+  }
 
   network_configuration {
-    subnets         = [aws_subnet.karuna_public_subnet_1.id, aws_subnet.karuna_public_subnet_2.id]
+    subnets         = [
+      aws_subnet.karuna_public_subnet_1.id,
+      aws_subnet.karuna_public_subnet_2.id
+    ]
     security_groups = [aws_security_group.karuna_sg_public.id]
     assign_public_ip = true
   }
