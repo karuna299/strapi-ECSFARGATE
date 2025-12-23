@@ -421,10 +421,10 @@ resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
   role = aws_iam_role.karuna_codedeploy_role.id
 
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow",
+        Effect = "Allow"
         Action = [
           "ecs:DescribeServices",
           "ecs:DescribeTaskDefinition",
@@ -434,30 +434,34 @@ resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
           "ecs:DeleteTaskSet",
           "ecs:DescribeTaskSets",
           "ecs:UpdateServicePrimaryTaskSet"
-        ],
+        ]
         Resource = "*"
       },
       {
-        Effect = "Allow",
+        Effect = "Allow"
         Action = [
           "elasticloadbalancing:RegisterTargets",
           "elasticloadbalancing:DeregisterTargets",
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeListeners"
-        ],
+        ]
         Resource = "*"
       },
       {
-        Effect = "Allow",
-        Action = [
-          "iam:PassRole"
-        ],
+        Effect = "Allow"
+        Action = "iam:PassRole"
         Resource = aws_iam_role.karuna_ecs_task_execution_role.arn
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
       }
     ]
   })
 }
 
+      
 ##############################################
 # CodeDeploy Deployment Group
 ##############################################
