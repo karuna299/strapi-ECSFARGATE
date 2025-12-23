@@ -282,7 +282,9 @@ resource "aws_ecs_service" "karuna_service" {
   deployment_controller {
     type = "CODE_DEPLOY"
   }
-
+  
+  health_check_grace_period_seconds = 300 
+  
   network_configuration {
     subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.karuna_sg_ecs.id]
