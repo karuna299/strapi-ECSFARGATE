@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  terraform_deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,17 +26,6 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -reconfigure -input=false
 
-      - name: Terraform Plan
-        run: |
-          terraform -chdir=terraform plan -input=false \
-            -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
-            -var="db_name=${{ secrets.TF_VAR_db_name }}" \
-            -var="db_username=${{ secrets.TF_VAR_db_username }}" \
-            -var="db_password=${{ secrets.TF_VAR_db_password }}" \
-            -var="strapi_admin_jwt_secret=${{ secrets.TF_VAR_strapi_admin_jwt_secret }}" \
-            -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
-            -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
-
       - name: Terraform Apply
         run: |
           terraform -chdir=terraform apply -auto-approve \
@@ -48,20 +37,17 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
-      - name: Get latest ECS task definition ARN
+      - name: Render task definition
         run: |
-          TASK_DEF_ARN=$(aws ecs describe-task-definition \
-            --task-definition karuna-task \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-          echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+          sed -i "s|<IMAGE_URI>|${{ secrets.ECR_REPOSITORY_URI }}:latest|g" taskdef.json
+          sed -i "s|REPLACE_AT_RUNTIME|${{ secrets.ECS_EXECUTION_ROLE_ARN }}|g" taskdef.json
 
       - name: Trigger CodeDeploy Deployment
         run: |
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision "revisionType=ECS,ecsTaskDefinition=${{ env.TASK_DEF_ARN }}" \
+            --revision revisionType=AppSpecContent,appSpecContent="{\"content\":\"$(cat appspec.yaml | sed 's/\"/\\\\\"/g')\"}" \
             --region ${{ secrets.AWS_REGION }}
 
       - name: Describe ECS Service
