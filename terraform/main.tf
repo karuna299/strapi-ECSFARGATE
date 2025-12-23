@@ -21,14 +21,14 @@ data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_subnets" "default" {
+data "aws_subnets" "public" {
   filter {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
 
   filter {
-    name   = "default-for-az"
+    name   = "map-public-ip-on-launch"
     values = ["true"]
   }
 }
@@ -213,7 +213,7 @@ resource "aws_ecs_task_definition" "karuna_task" {
 resource "aws_lb" "karuna_alb" {
   name               = "karuna-alb"
   load_balancer_type = "application"
-  subnets            = data.aws_subnets.default.ids
+  subnets            = data.aws_subnets.public.ids
   security_groups    = [aws_security_group.karuna_sg_alb.id]
 }
 
@@ -277,9 +277,9 @@ resource "aws_ecs_service" "karuna_service" {
   health_check_grace_period_seconds = 300
 
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
+    subnets          = data.aws_subnets.public.ids
     security_groups  = [aws_security_group.karuna_sg_ecs.id]
-    
+    assign_public_ip = true
   }
 
   load_balancer {

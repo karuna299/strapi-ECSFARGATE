@@ -56,17 +56,12 @@ jobs:
             --output text)
           echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
 
-      - name: Inject task definition into appspec.yaml
-        run: |
-          sed -i "s|<TASK_DEFINITION>|${{ env.TASK_DEF_ARN }}|g" appspec.yaml
-          cat appspec.yaml
-
       - name: Trigger CodeDeploy Deployment
         run: |
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision "revisionType=AppSpecContent,appSpecContent={content=$(cat appspec.yaml)}" \
+            --revision "revisionType=ECS,ecsTaskDefinition=${{ env.TASK_DEF_ARN }}" \
             --region ${{ secrets.AWS_REGION }}
 
       - name: Describe ECS Service
