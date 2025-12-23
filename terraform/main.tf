@@ -15,7 +15,7 @@ provider "aws" {
 }
 
 ##############################################
-# Default VPC & Subnets (CRITICAL)
+# Default VPC & Subnets
 ##############################################
 data "aws_vpc" "default" {
   default = true
@@ -208,7 +208,7 @@ resource "aws_ecs_task_definition" "karuna_task" {
 }
 
 ##############################################
-# ALB
+# ALB + Target Groups
 ##############################################
 resource "aws_lb" "karuna_alb" {
   name               = "karuna-alb"
@@ -223,17 +223,6 @@ resource "aws_lb_target_group" "karuna_tg_blue" {
   protocol    = "HTTP"
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
-
-  health_check {
-   path                = "/admin"
-   protocol            = "HTTP"
-   matcher             = "200-399"
-   interval            = 30
-   timeout             = 5
-   healthy_threshold   = 2
-   unhealthy_threshold = 2
-  }
-
 }
 
 resource "aws_lb_target_group" "karuna_tg_green" {
@@ -242,51 +231,35 @@ resource "aws_lb_target_group" "karuna_tg_green" {
   protocol    = "HTTP"
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
-
-  health_check {
-   path                = "/admin"
-   protocol            = "HTTP"
-   matcher             = "200-399"
-   interval            = 30
-   timeout             = 5
-   healthy_threshold   = 2
-   unhealthy_threshold = 2
-  }
-
 }
 
-resource "aws_lb_listener" "karuna_listener" {
+##############################################
+# ALB LISTENERS (THIS IS STEP 2)
+##############################################
+
+# PROD listener (CodeDeploy controls this)
+resource "aws_lb_listener" "karuna_listener_prod" {
   load_balancer_arn = aws_lb.karuna_alb.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "fixed-response"
-
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "OK"
-      status_code  = "200"
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "karuna_blue_rule" {
-  listener_arn = aws_lb_listener.karuna_listener.arn
-  priority     = 1
-
-  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.karuna_tg_blue.arn
   }
-
-  condition {
-    path_pattern {
-      values = ["/*"]
-    }
-  }
 }
 
+# TEST listener (required for Blue/Green)
+resource "aws_lb_listener" "karuna_listener_test" {
+  load_balancer_arn = aws_lb.karuna_alb.arn
+  port              = 9000
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.karuna_tg_green.arn
+  }
+}
 
 ##############################################
 # ECS Service
@@ -300,13 +273,13 @@ resource "aws_ecs_service" "karuna_service" {
   deployment_controller {
     type = "CODE_DEPLOY"
   }
-  
-  health_check_grace_period_seconds = 300 
+
+  health_check_grace_period_seconds = 300
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.karuna_sg_ecs.id]
-    assign_public_ip = true
+    
   }
 
   load_balancer {
@@ -317,7 +290,7 @@ resource "aws_ecs_service" "karuna_service" {
 
   lifecycle {
     ignore_changes = [
-      task_definition,   # CodeDeploy controls updates
+      task_definition,
       load_balancer,
       desired_count
     ]
@@ -370,7 +343,11 @@ resource "aws_codedeploy_deployment_group" "karuna_dg" {
   load_balancer_info {
     target_group_pair_info {
       prod_traffic_route {
-        listener_arns = [aws_lb_listener.karuna_listener.arn]
+        listener_arns = [aws_lb_listener.karuna_listener_prod.arn]
+      }
+
+      test_traffic_route {
+        listener_arns = [aws_lb_listener.karuna_listener_test.arn]
       }
 
       target_group { name = aws_lb_target_group.karuna_tg_blue.name }
@@ -400,34 +377,18 @@ resource "aws_cloudwatch_dashboard" "karuna_ecs_dashboard" {
     widgets = [
       {
         type   = "metric",
-        x      = 0,
-        y      = 0,
         width  = 24,
         height = 6,
         properties = {
           metrics = [
-            [
-              "AWS/ECS",
-              "CPUUtilization",
-              "ClusterName",
-              aws_ecs_cluster.karuna_cluster.name,
-              "ServiceName",
-              aws_ecs_service.karuna_service.name
-            ],
-            [
-              "AWS/ECS",
-              "MemoryUtilization",
-              "ClusterName",
-              aws_ecs_cluster.karuna_cluster.name,
-              "ServiceName",
-              aws_ecs_service.karuna_service.name
-            ]
+            ["AWS/ECS","CPUUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name],
+            ["AWS/ECS","MemoryUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name]
           ]
-          view      = "timeSeries"
-          region    = var.region
-          stat      = "Average"
-          period    = 300
-          title     = "ECS CPU & Memory Utilization"
+          view   = "timeSeries"
+          stat   = "Average"
+          period = 300
+          region = var.region
+          title  = "ECS CPU & Memory Utilization"
         }
       }
     ]
