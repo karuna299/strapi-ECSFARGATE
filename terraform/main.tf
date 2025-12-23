@@ -424,7 +424,11 @@ resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
           "ecs:DescribeServices",
           "ecs:DescribeTaskDefinition",
           "ecs:UpdateService",
-          "ecs:RegisterTaskDefinition"
+          "ecs:RegisterTaskDefinition",
+          "ecs:CreateTaskSet",
+          "ecs:DeleteTaskSet",
+          "ecs:DescribeTaskSets",
+          "ecs:UpdateServicePrimaryTaskSet"
         ],
         Resource = "*"
       },
