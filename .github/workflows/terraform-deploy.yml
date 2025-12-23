@@ -51,11 +51,11 @@ jobs:
       - name: Trigger CodeDeploy Deployment
         run: |
           aws deploy create-deployment \
-            --application-name karuna-strapi-codedeploy-app \
-            --deployment-group-name karuna-strapi-deployment-group \
-            --revision "gitHubLocation={repository=${{ github.repository }},commitId=${{ github.sha }}}" \
-            --region ${{ secrets.AWS_REGION }}
-
+           --application-name karuna-strapi-codedeploy-app \
+           --deployment-group-name karuna-strapi-deployment-group \
+           --revision "revisionType=GitHub,gitHubLocation={repository=${{ github.repository }},commitId=${{ github.sha }}}" \
+           --region ${{ secrets.AWS_REGION }}
+           
       - name: Describe ECS Service
         run: |
           aws ecs describe-services \
