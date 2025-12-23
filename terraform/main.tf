@@ -257,7 +257,7 @@ resource "aws_ecs_service" "karuna_service" {
       aws_subnet.karuna_public_subnet_1.id,
       aws_subnet.karuna_public_subnet_2.id
     ]
-    security_groups = [aws_security_group.karuna_sg_ecs.id]
+    security_groups = [aws_security_group.karuna_sg_public.id]
     assign_public_ip = false
   }
 
