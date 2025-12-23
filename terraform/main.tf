@@ -141,7 +141,6 @@ resource "aws_security_group" "karuna_sg_ecs" {
   }
 }
 
-
 ##############################################
 # ECS Cluster (Container Insights enabled)
 ##############################################
@@ -182,7 +181,7 @@ resource "aws_iam_role_policy_attachment" "karuna_ecs_task_execution_role_attach
 }
 
 ##############################################
-# RDS (PUBLIC, NO PRIVATE SUBNETS)
+# RDS (PUBLIC)
 ##############################################
 resource "aws_db_instance" "karuna_postgres" {
   identifier             = "karuna-rds-postgres"
@@ -253,10 +252,7 @@ resource "aws_ecs_service" "karuna_service" {
   }
 
   network_configuration {
-    subnets         = [
-      aws_subnet.karuna_public_subnet_1.id,
-      aws_subnet.karuna_public_subnet_2.id
-    ]
+    subnets         = [aws_subnet.karuna_public_subnet_1.id, aws_subnet.karuna_public_subnet_2.id]
     security_groups = [aws_security_group.karuna_sg_public.id]
     assign_public_ip = false
   }
@@ -277,28 +273,10 @@ resource "aws_security_group" "karuna_sg_alb" {
   name   = "karuna-sg-alb"
   vpc_id = data.aws_vpc.default.id
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  ingress { from_port = 80 to_port = 80 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] }
+  ingress { from_port = 443 to_port = 443 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] }
 
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "karuna-sg-alb" }
+  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
 }
 
 ##############################################
@@ -308,59 +286,37 @@ resource "aws_lb" "karuna_alb" {
   name               = "karuna-alb"
   internal           = false
   load_balancer_type = "application"
-  subnets            = [
-    aws_subnet.karuna_public_subnet_1.id,
-    aws_subnet.karuna_public_subnet_2.id
-  ]
-  security_groups = [aws_security_group.karuna_sg_alb.id]
-
-  tags = { Name = "karuna-alb" }
+  subnets            = [aws_subnet.karuna_public_subnet_1.id, aws_subnet.karuna_public_subnet_2.id]
+  security_groups    = [aws_security_group.karuna_sg_alb.id]
 }
 
 ##############################################
-# Target Group (Blue)
+# Target Groups (Blue / Green)
 ##############################################
 resource "aws_lb_target_group" "karuna_tg" {
-  name        = "karuna-tg"
-  port        = 1337
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
+  name = "karuna-tg"
+  port = 1337
+  protocol = "HTTP"
+  vpc_id = data.aws_vpc.default.id
   target_type = "ip"
 
   health_check {
-    path                = "/admin"
-    protocol            = "HTTP"
-    matcher             = "200-399"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
+    path = "/admin"
+    matcher = "200-399"
   }
-
-  tags = { Name = "karuna-tg" }
 }
 
-##############################################
-# Target Group (Green)
-##############################################
 resource "aws_lb_target_group" "karuna_tg_green" {
-  name        = "karuna-tg-green"
-  port        = 1337
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
+  name = "karuna-tg-green"
+  port = 1337
+  protocol = "HTTP"
+  vpc_id = data.aws_vpc.default.id
   target_type = "ip"
 
   health_check {
-    path                = "/admin"
-    protocol            = "HTTP"
-    matcher             = "200-399"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
+    path = "/admin"
+    matcher = "200-399"
   }
-
-  tags = { Name = "karuna-tg-green" }
 }
 
 ##############################################
@@ -368,11 +324,11 @@ resource "aws_lb_target_group" "karuna_tg_green" {
 ##############################################
 resource "aws_lb_listener" "karuna_listener" {
   load_balancer_arn = aws_lb.karuna_alb.arn
-  port              = 80
-  protocol          = "HTTP"
+  port = 80
+  protocol = "HTTP"
 
   default_action {
-    type             = "forward"
+    type = "forward"
     target_group_arn = aws_lb_target_group.karuna_tg.arn
   }
 }
@@ -386,7 +342,7 @@ resource "aws_codedeploy_app" "karuna_codedeploy_app" {
 }
 
 ##############################################
-# IAM Role for CodeDeploy
+# IAM Role for CodeDeploy (FIXED)
 ##############################################
 resource "aws_iam_role" "karuna_codedeploy_role" {
   name = "karuna-codedeploy-role"
@@ -395,9 +351,7 @@ resource "aws_iam_role" "karuna_codedeploy_role" {
     Version = "2012-10-17",
     Statement = [{
       Effect = "Allow"
-      Principal = {
-        Service = "codedeploy.amazonaws.com"
-      }
+      Principal = { Service = "codedeploy.amazonaws.com" }
       Action = "sts:AssumeRole"
     }]
   })
@@ -405,11 +359,11 @@ resource "aws_iam_role" "karuna_codedeploy_role" {
 
 resource "aws_iam_role_policy_attachment" "karuna_codedeploy_role_attach" {
   role       = aws_iam_role.karuna_codedeploy_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForECS"
 }
 
 ##############################################
-# Extra permissions for CodeDeploy (ECS access)
+# Extra permissions for CodeDeploy
 ##############################################
 resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
   name = "karuna-codedeploy-ecs-extra"
@@ -435,36 +389,7 @@ resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
       {
         Effect = "Allow",
         Action = [
-          "elasticloadbalancing:RegisterTargets",
-          "elasticloadbalancing:DeregisterTargets",
-          "elasticloadbalancing:DescribeTargetGroups",
-          "elasticloadbalancing:DescribeListeners"
-        ],
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "karuna_codedeploy_elbv2_permissions" {
-  name = "karuna-codedeploy-elbv2"
-  role = aws_iam_role.karuna_codedeploy_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Action = [
-          "elasticloadbalancing:DescribeLoadBalancers",
-          "elasticloadbalancing:DescribeListeners",
-          "elasticloadbalancing:DescribeRules",
-          "elasticloadbalancing:DescribeTargetGroups",
-          "elasticloadbalancing:DescribeTargetHealth",
-          "elasticloadbalancing:RegisterTargets",
-          "elasticloadbalancing:DeregisterTargets",
-          "elasticloadbalancing:ModifyListener",
-          "elasticloadbalancing:ModifyRule"
+          "elasticloadbalancing:*"
         ],
         Resource = "*"
       }
@@ -488,10 +413,9 @@ resource "aws_codedeploy_deployment_group" "karuna_codedeploy_dg" {
   }
 
   deployment_style {
-   deployment_type   = "BLUE_GREEN"
-   deployment_option = "WITH_TRAFFIC_CONTROL"
+    deployment_type   = "BLUE_GREEN"
+    deployment_option = "WITH_TRAFFIC_CONTROL"
   }
-
 
   ecs_service {
     cluster_name = aws_ecs_cluster.karuna_cluster.name
@@ -504,13 +428,8 @@ resource "aws_codedeploy_deployment_group" "karuna_codedeploy_dg" {
         listener_arns = [aws_lb_listener.karuna_listener.arn]
       }
 
-      target_group {
-        name = aws_lb_target_group.karuna_tg.name
-      }
-
-      target_group {
-        name = aws_lb_target_group.karuna_tg_green.name
-      }
+      target_group { name = aws_lb_target_group.karuna_tg.name }
+      target_group { name = aws_lb_target_group.karuna_tg_green.name }
     }
   }
 
@@ -536,34 +455,18 @@ resource "aws_cloudwatch_dashboard" "karuna_ecs_dashboard" {
     widgets = [
       {
         type   = "metric",
-        x      = 0,
-        y      = 0,
         width  = 24,
         height = 6,
         properties = {
           metrics = [
-            [
-              "AWS/ECS",
-              "CPUUtilization",
-              "ClusterName",
-              aws_ecs_cluster.karuna_cluster.name,
-              "ServiceName",
-              aws_ecs_service.karuna_service.name
-            ],
-            [
-              "AWS/ECS",
-              "MemoryUtilization",
-              "ClusterName",
-              aws_ecs_cluster.karuna_cluster.name,
-              "ServiceName",
-              aws_ecs_service.karuna_service.name
-            ]
-          ]
-          view      = "timeSeries"
-          region    = var.region
-          stat      = "Average"
-          period    = 300
-          title     = "ECS CPU & Memory Utilization"
+            ["AWS/ECS","CPUUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name],
+            ["AWS/ECS","MemoryUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name]
+          ],
+          view   = "timeSeries",
+          stat   = "Average",
+          period = 300,
+          region = var.region,
+          title  = "ECS CPU & Memory Utilization"
         }
       }
     ]
