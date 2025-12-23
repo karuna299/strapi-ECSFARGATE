@@ -8,11 +8,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the code
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Configure AWS credentials for Terraform
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -20,17 +18,14 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: "1.5.5"
 
-      # Terraform Init with reconfigure
       - name: Terraform Init
         run: terraform -chdir=terraform init -reconfigure -input=false
 
-      # Terraform Plan
       - name: Terraform Plan
         run: |
           terraform -chdir=terraform plan -input=false \
@@ -42,7 +37,6 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
-      # Terraform Apply
       - name: Terraform Apply
         run: |
           terraform -chdir=terraform apply -auto-approve \
@@ -54,16 +48,14 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
-      # Trigger CodeDeploy Blue/Green Deployment
       - name: Trigger CodeDeploy Deployment
         run: |
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision revisionType=GitHub,repositoryName=${{ github.repository }},commitId=${{ github.sha }} \
+            --revision gitHubLocation={repositoryName=${{ github.repository }},commitId=${{ github.sha }}} \
             --region ${{ secrets.AWS_REGION }}
 
-      # Describe ECS Service (verification only)
       - name: Describe ECS Service
         run: |
           aws ecs describe-services \
