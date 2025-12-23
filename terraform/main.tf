@@ -122,6 +122,26 @@ resource "aws_security_group" "karuna_sg_db" {
   }
 }
 
+resource "aws_security_group" "karuna_sg_ecs" {
+  name   = "karuna-sg-ecs"
+  vpc_id = data.aws_vpc.default.id
+
+  ingress {
+    from_port       = 1337
+    to_port         = 1337
+    protocol        = "tcp"
+    security_groups = [aws_security_group.karuna_sg_alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+
 ##############################################
 # ECS Cluster (Container Insights enabled)
 ##############################################
@@ -237,7 +257,7 @@ resource "aws_ecs_service" "karuna_service" {
       aws_subnet.karuna_public_subnet_1.id,
       aws_subnet.karuna_public_subnet_2.id
     ]
-    security_groups = [aws_security_group.karuna_sg_public.id]
+    security_groups = [aws_security_group.karuna_sg_ecs.id]
     assign_public_ip = false
   }
 
