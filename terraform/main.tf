@@ -261,12 +261,13 @@ resource "aws_lb_listener" "karuna_listener" {
   protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.karuna_tg_blue.arn
-  }
+    type = "fixed-response"
 
-  lifecycle {
-    ignore_changes = [default_action]
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "OK"
+      status_code  = "200"
+    }
   }
 }
 
@@ -284,7 +285,7 @@ resource "aws_ecs_service" "karuna_service" {
   }
   
   health_check_grace_period_seconds = 300 
-  
+
   network_configuration {
     subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.karuna_sg_ecs.id]
