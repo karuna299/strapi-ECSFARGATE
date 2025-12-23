@@ -54,16 +54,16 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
-      # Force ECS to pick up new task definition
-      - name: Force ECS Service New Deployment
+      # Trigger CodeDeploy Blue/Green Deployment
+      - name: Trigger CodeDeploy Deployment
         run: |
-          aws ecs update-service \
-            --cluster karuna-ecs-cluster \
-            --service karuna-service \
-            --force-new-deployment \
+          aws deploy create-deployment \
+            --application-name karuna-strapi-codedeploy-app \
+            --deployment-group-name karuna-strapi-deployment-group \
+            --revision revisionType=GitHub,repositoryName=${{ github.repository }},commitId=${{ github.sha }} \
             --region ${{ secrets.AWS_REGION }}
 
-      # Optional: Show the deployed service details
+      # Describe ECS Service (verification only)
       - name: Describe ECS Service
         run: |
           aws ecs describe-services \
