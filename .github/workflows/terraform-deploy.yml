@@ -44,11 +44,13 @@ jobs:
 
       - name: Trigger CodeDeploy Deployment
         run: |
-          aws deploy create-deployment \
-            --application-name karuna-strapi-codedeploy-app \
-            --deployment-group-name karuna-strapi-deployment-group \
-            --revision revisionType=AppSpecContent,appSpecContent="{\"content\":\"$(cat appspec.yaml | sed 's/\"/\\\\\"/g')\"}" \
-            --region ${{ secrets.AWS_REGION }}
+         APPSPEC_CONTENT=$(jq -Rs . < appspec.yaml)
+
+         aws deploy create-deployment \
+          --application-name karuna-strapi-codedeploy-app \
+          --deployment-group-name karuna-strapi-deployment-group \
+          --revision "revisionType=AppSpecContent,appSpecContent={\"content\":$APPSPEC_CONTENT}" \
+          --region ${{ secrets.AWS_REGION }}
 
       - name: Describe ECS Service
         run: |
