@@ -270,6 +270,8 @@ resource "aws_ecs_service" "karuna_service" {
   task_definition = aws_ecs_task_definition.karuna_task.arn
   desired_count   = 1
 
+  launch_type = "FARGATE"
+
   deployment_controller {
     type = "CODE_DEPLOY"
   }
