@@ -53,7 +53,7 @@ jobs:
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision gitHubLocation={repositoryName=${{ github.repository }},commitId=${{ github.sha }}} \
+            --revision "gitHubLocation={repositoryName=${{ github.repository }},commitId=${{ github.sha }}}" \
             --region ${{ secrets.AWS_REGION }}
 
       - name: Describe ECS Service
