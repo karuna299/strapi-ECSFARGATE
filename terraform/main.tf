@@ -225,9 +225,15 @@ resource "aws_lb_target_group" "karuna_tg_blue" {
   target_type = "ip"
 
   health_check {
-    path    = "/_health"
-    matcher = "204"
+   path                = "/admin"
+   protocol            = "HTTP"
+   matcher             = "200-399"
+   interval            = 30
+   timeout             = 5
+   healthy_threshold   = 2
+   unhealthy_threshold = 2
   }
+
 }
 
 resource "aws_lb_target_group" "karuna_tg_green" {
@@ -238,9 +244,15 @@ resource "aws_lb_target_group" "karuna_tg_green" {
   target_type = "ip"
 
   health_check {
-    path    = "/_health"
-    matcher = "204"
+   path                = "/admin"
+   protocol            = "HTTP"
+   matcher             = "200-399"
+   interval            = 30
+   timeout             = 5
+   healthy_threshold   = 2
+   unhealthy_threshold = 2
   }
+
 }
 
 resource "aws_lb_listener" "karuna_listener" {
