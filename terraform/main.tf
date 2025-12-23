@@ -271,6 +271,23 @@ resource "aws_lb_listener" "karuna_listener" {
   }
 }
 
+resource "aws_lb_listener_rule" "karuna_blue_rule" {
+  listener_arn = aws_lb_listener.karuna_listener.arn
+  priority     = 1
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.karuna_tg_blue.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/*"]
+    }
+  }
+}
+
+
 ##############################################
 # ECS Service
 ##############################################
