@@ -422,6 +422,32 @@ resource "aws_iam_role_policy" "karuna_codedeploy_ecs_permissions" {
   })
 }
 
+resource "aws_iam_role_policy" "karuna_codedeploy_elbv2_permissions" {
+  name = "karuna-codedeploy-elbv2"
+  role = aws_iam_role.karuna_codedeploy_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:RegisterTargets",
+          "elasticloadbalancing:DeregisterTargets",
+          "elasticloadbalancing:ModifyListener",
+          "elasticloadbalancing:ModifyRule"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 ##############################################
 # CodeDeploy Deployment Group
 ##############################################
