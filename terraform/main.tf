@@ -247,6 +247,15 @@ resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
   task_definition = aws_ecs_task_definition.karuna_task.arn
+  
+  lifecycle {
+   ignore_changes = [
+     task_definition,
+     network_configuration,
+     load_balancer,
+     desired_count
+    ]
+  }
 
   deployment_controller {
     type = "CODE_DEPLOY"
@@ -257,7 +266,7 @@ resource "aws_ecs_service" "karuna_service" {
       aws_subnet.karuna_public_subnet_1.id,
       aws_subnet.karuna_public_subnet_2.id
     ]
-    security_groups = [aws_security_group.karuna_sg_public.id]
+    security_groups = [aws_security_group.karuna_sg_ecs.id]
     assign_public_ip = false
   }
 
@@ -403,10 +412,6 @@ resource "aws_iam_role" "karuna_codedeploy_role" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "karuna_codedeploy_role_attach" {
-  role       = aws_iam_role.karuna_codedeploy_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForECS"
-}
 
 ##############################################
 # Extra permissions for CodeDeploy (ECS access)

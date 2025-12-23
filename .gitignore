@@ -131,3 +131,5 @@ build
 .strapi-cloud.json
 
 terraform/test.auto.tfvars
+terraform/.terraform
+terraform/.terraform.*
