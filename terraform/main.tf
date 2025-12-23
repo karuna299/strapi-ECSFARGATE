@@ -268,10 +268,9 @@ resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
   task_definition = aws_ecs_task_definition.karuna_task.arn
-  desired_count   = 1
+  desired_count   = 0
 
-  launch_type = "FARGATE"
-
+  
   deployment_controller {
     type = "CODE_DEPLOY"
   }
@@ -281,7 +280,7 @@ resource "aws_ecs_service" "karuna_service" {
   network_configuration {
     subnets          = data.aws_subnets.public.ids
     security_groups  = [aws_security_group.karuna_sg_ecs.id]
-    assign_public_ip = true
+    
   }
 
   load_balancer {
