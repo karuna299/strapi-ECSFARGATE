@@ -22,12 +22,5 @@ output "rds_port" {
   value       = aws_db_instance.karuna_postgres.port
 }
 
-output "public_subnet_ids" {
-  description = "The IDs of the public subnets for ECS"
-  value = [
-    aws_subnet.karuna_public_subnet_1.id,
-    aws_subnet.karuna_public_subnet_2.id,
-  ]
-}
 
 
