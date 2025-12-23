@@ -274,10 +274,9 @@ resource "aws_lb_listener" "karuna_listener" {
 # ECS Service
 ##############################################
 resource "aws_ecs_service" "karuna_service" {
-  name            = "karuna-service"
-  cluster         = aws_ecs_cluster.karuna_cluster.id
-  task_definition = aws_ecs_task_definition.karuna_task.arn
-  desired_count   = 1
+  name          = "karuna-service"
+  cluster       = aws_ecs_cluster.karuna_cluster.id
+  desired_count = 1
 
   deployment_controller {
     type = "CODE_DEPLOY"
@@ -303,6 +302,7 @@ resource "aws_ecs_service" "karuna_service" {
     ]
   }
 }
+
 
 ##############################################
 # CodeDeploy
