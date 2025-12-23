@@ -276,11 +276,8 @@ resource "aws_lb_listener" "karuna_listener" {
 resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
-
-  # REQUIRED AT CREATE TIME (even for CodeDeploy)
   task_definition = aws_ecs_task_definition.karuna_task.arn
-
-  desired_count = 1
+  desired_count   = 1
 
   deployment_controller {
     type = "CODE_DEPLOY"
@@ -300,13 +297,12 @@ resource "aws_ecs_service" "karuna_service" {
 
   lifecycle {
     ignore_changes = [
-      task_definition,   # CodeDeploy updates this later
-      desired_count,
-      load_balancer
+      task_definition,   # CodeDeploy controls updates
+      load_balancer,
+      desired_count
     ]
   }
 }
-
 
 ##############################################
 # CodeDeploy
