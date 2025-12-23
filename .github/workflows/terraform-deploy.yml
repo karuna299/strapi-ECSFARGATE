@@ -1,4 +1,4 @@
-name: Deploy with CodeDeploy
+name: Terraform Deploy
 
 on:
   workflow_dispatch:
@@ -8,19 +8,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Configure AWS
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.5"
+
+      # ---------- INFRA ----------
+      - name: Terraform Init
+        run: terraform -chdir=terraform init -input=false
+
+      - name: Terraform Apply
+        run: |
+          terraform -chdir=terraform apply -auto-approve \
+            -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
+            -var="db_name=${{ secrets.TF_VAR_db_name }}" \
+            -var="db_username=${{ secrets.TF_VAR_db_username }}" \
+            -var="db_password=${{ secrets.TF_VAR_db_password }}" \
+            -var="strapi_admin_jwt_secret=${{ secrets.TF_VAR_strapi_admin_jwt_secret }}" \
+            -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
+            -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
+
+      # ---------- DEPLOY ----------
       - name: Render task definition
         run: |
           sed -i "s|<IMAGE_URI>|${{ secrets.ECR_REPOSITORY_URI }}:latest|g" taskdef.json
-          sed -i "s|REPLACE_AT_RUNTIME|${{ secrets.ECS_EXECUTION_ROLE_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_EXEC_ROLE|${{ secrets.ECS_EXECUTION_ROLE_ARN }}|g" taskdef.json
 
       - name: Register task definition
         run: |
@@ -30,14 +52,13 @@ jobs:
             --output text)
           echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
 
-      - name: Inject task definition into appspec
+      - name: Render appspec
         run: |
-          sed -i "s|<TASK_DEFINITION>|${{ env.TASK_DEF_ARN }}|g" appspec.yaml
+          sed -i "s|TASK_DEF_ARN|${{ env.TASK_DEF_ARN }}|g" appspec.yaml
 
       - name: Trigger CodeDeploy
         run: |
-          APPSPEC=$(jq -Rs . < appspec.yaml)
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision "revisionType=AppSpecContent,appSpecContent={content=$APPSPEC}"
+            --revision revisionType=AppSpecContent,appSpecContent="{content=$(cat appspec.yaml)}"

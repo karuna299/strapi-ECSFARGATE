@@ -4,7 +4,7 @@
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512",
   "memory": "1024",
-  "executionRoleArn": "REPLACE_AT_RUNTIME",
+  "executionRoleArn": "REPLACE_EXEC_ROLE",
   "containerDefinitions": [
     {
       "name": "karuna-strapi",
@@ -15,6 +15,11 @@
           "containerPort": 1337,
           "protocol": "tcp"
         }
+      ],
+      "environment": [
+        { "name": "DATABASE_CLIENT", "value": "postgres" },
+        { "name": "DATABASE_HOST", "value": "RDS_FROM_TERRAFORM" },
+        { "name": "DATABASE_PORT", "value": "5432" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
