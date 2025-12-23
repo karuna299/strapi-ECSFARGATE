@@ -48,6 +48,19 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
+      - name: Get latest ECS task definition ARN
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-task-definition \
+            --task-definition karuna-task \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+
+      - name: Inject task definition into appspec.yaml
+        run: |
+          sed -i "s|<TASK_DEFINITION>|${{ env.TASK_DEF_ARN }}|g" appspec.yaml
+          cat appspec.yaml
+
       - name: Trigger CodeDeploy Deployment
         run: |
           aws deploy create-deployment \
