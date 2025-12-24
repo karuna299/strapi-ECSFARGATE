@@ -182,6 +182,9 @@ resource "aws_ecs_task_definition" "karuna_task" {
     portMappings = [{ containerPort = 1337 }]
 
     environment = [
+      { name = "HOST", value = "0.0.0.0" },
+      { name = "PORT", value = "1337" },
+
       { name = "DATABASE_CLIENT", value = "postgres" },
       { name = "DATABASE_HOST", value = aws_db_instance.karuna_postgres.address },
       { name = "DATABASE_PORT", value = "5432" },
@@ -190,6 +193,7 @@ resource "aws_ecs_task_definition" "karuna_task" {
       { name = "DATABASE_PASSWORD", value = var.db_password },
       { name = "DATABASE_SSL", value = "true" },
       { name = "DATABASE_SSL_REJECT_UNAUTHORIZED", value = "false" },
+
       { name = "APP_KEYS", value = var.strapi_app_keys },
       { name = "API_TOKEN_SALT", value = var.strapi_api_token_salt },
       { name = "ADMIN_JWT_SECRET", value = var.strapi_admin_jwt_secret },
@@ -223,6 +227,11 @@ resource "aws_lb_target_group" "karuna_tg_blue" {
   protocol    = "HTTP"
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
+
+  health_check {
+    path    = "/_health"
+    matcher = "204"
+  }
 }
 
 resource "aws_lb_target_group" "karuna_tg_green" {
@@ -231,13 +240,16 @@ resource "aws_lb_target_group" "karuna_tg_green" {
   protocol    = "HTTP"
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
+
+  health_check {
+    path    = "/_health"
+    matcher = "204"
+  }
 }
 
 ##############################################
-# ALB LISTENERS (THIS IS STEP 2)
+# ALB Listeners
 ##############################################
-
-# PROD listener (CodeDeploy controls this)
 resource "aws_lb_listener" "karuna_listener_prod" {
   load_balancer_arn = aws_lb.karuna_alb.arn
   port              = 80
@@ -249,7 +261,6 @@ resource "aws_lb_listener" "karuna_listener_prod" {
   }
 }
 
-# TEST listener (required for Blue/Green)
 resource "aws_lb_listener" "karuna_listener_test" {
   load_balancer_arn = aws_lb.karuna_alb.arn
   port              = 9000
@@ -259,139 +270,4 @@ resource "aws_lb_listener" "karuna_listener_test" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.karuna_tg_green.arn
   }
-}
-
-##############################################
-# ECS Service
-##############################################
-resource "aws_ecs_service" "karuna_service" {
-  name            = "karuna-service"
-  cluster         = aws_ecs_cluster.karuna_cluster.id
-  task_definition = aws_ecs_task_definition.karuna_task.arn
-  desired_count   = 0
-
-  
-  deployment_controller {
-    type = "CODE_DEPLOY"
-  }
-
-  health_check_grace_period_seconds = 300
-
-  network_configuration {
-    subnets          = data.aws_subnets.public.ids
-    security_groups  = [aws_security_group.karuna_sg_ecs.id]
-    
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.karuna_tg_blue.arn
-    container_name   = "karuna-strapi"
-    container_port   = 1337
-  }
-
-  lifecycle {
-    ignore_changes = [
-      task_definition,
-      load_balancer,
-      desired_count
-    ]
-  }
-}
-
-##############################################
-# CodeDeploy
-##############################################
-resource "aws_iam_role" "karuna_codedeploy_role" {
-  name = "karuna-codedeploy-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect    = "Allow",
-      Principal = { Service = "codedeploy.amazonaws.com" },
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "karuna_codedeploy_attach" {
-  role       = aws_iam_role.karuna_codedeploy_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS"
-}
-
-resource "aws_codedeploy_app" "karuna_app" {
-  name             = "karuna-strapi-codedeploy-app"
-  compute_platform = "ECS"
-}
-
-resource "aws_codedeploy_deployment_group" "karuna_dg" {
-  app_name              = aws_codedeploy_app.karuna_app.name
-  deployment_group_name = "karuna-strapi-deployment-group"
-  service_role_arn      = aws_iam_role.karuna_codedeploy_role.arn
-
-  deployment_config_name = "CodeDeployDefault.ECSCanary10Percent5Minutes"
-
-  deployment_style {
-    deployment_type   = "BLUE_GREEN"
-    deployment_option = "WITH_TRAFFIC_CONTROL"
-  }
-
-  ecs_service {
-    cluster_name = aws_ecs_cluster.karuna_cluster.name
-    service_name = aws_ecs_service.karuna_service.name
-  }
-
-  load_balancer_info {
-    target_group_pair_info {
-      prod_traffic_route {
-        listener_arns = [aws_lb_listener.karuna_listener_prod.arn]
-      }
-
-      test_traffic_route {
-        listener_arns = [aws_lb_listener.karuna_listener_test.arn]
-      }
-
-      target_group { name = aws_lb_target_group.karuna_tg_blue.name }
-      target_group { name = aws_lb_target_group.karuna_tg_green.name }
-    }
-  }
-
-  blue_green_deployment_config {
-    terminate_blue_instances_on_deployment_success {
-      action                           = "TERMINATE"
-      termination_wait_time_in_minutes = 5
-    }
-
-    deployment_ready_option {
-      action_on_timeout = "CONTINUE_DEPLOYMENT"
-    }
-  }
-}
-
-##############################################
-# CloudWatch Dashboard
-##############################################
-resource "aws_cloudwatch_dashboard" "karuna_ecs_dashboard" {
-  dashboard_name = "karuna-ecs-dashboard"
-
-  dashboard_body = jsonencode({
-    widgets = [
-      {
-        type   = "metric",
-        width  = 24,
-        height = 6,
-        properties = {
-          metrics = [
-            ["AWS/ECS","CPUUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name],
-            ["AWS/ECS","MemoryUtilization","ClusterName",aws_ecs_cluster.karuna_cluster.name,"ServiceName",aws_ecs_service.karuna_service.name]
-          ]
-          view   = "timeSeries"
-          stat   = "Average"
-          period = 300
-          region = var.region
-          title  = "ECS CPU & Memory Utilization"
-        }
-      }
-    ]
-  })
 }
