@@ -64,3 +64,4 @@ variable "strapi_app_keys" {
   type        = string
   sensitive   = true
 }
+

@@ -1,4 +1,4 @@
-name: Terraform + CodeDeploy (ECS Blue/Green)
+name: Terraform + CodeDeploy (AllAtOnce)
 
 on:
   workflow_dispatch:
@@ -9,12 +9,15 @@ jobs:
 
     env:
       AWS_REGION: ap-south-1
+      TASK_FAMILY: karuna-task
+      CODEDEPLOY_APP: karuna-ecs-app
+      CODEDEPLOY_GROUP: karuna-ecs-dg
 
     steps:
       # -----------------------------
       # Checkout
       # -----------------------------
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       # -----------------------------
@@ -28,17 +31,26 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # -----------------------------
+      # Install jq (REQUIRED)
+      # -----------------------------
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # -----------------------------
       # Terraform
       # -----------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.5
 
-      - name: Terraform Init (reconfigure)
+      - name: Terraform Init
         run: terraform -chdir=terraform init -reconfigure
 
       - name: Terraform Apply
         run: |
           terraform -chdir=terraform apply -auto-approve \
+            -var="region=${{ secrets.AWS_REGION }}" \
             -var="ecr_repository_name=${{ secrets.ECR_REPOSITORY_NAME }}" \
             -var="db_name=${{ secrets.TF_VAR_db_name }}" \
             -var="db_username=${{ secrets.TF_VAR_db_username }}" \
@@ -48,31 +60,39 @@ jobs:
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
       # -----------------------------
-      # Get EXISTING Task Definition
-      # (NO new task registration)
+      # Register NEW ECS Task Definition
       # -----------------------------
-      - name: Get latest ECS Task Definition
-        id: taskdef
+      - name: Register new ECS task definition
         run: |
-          TASK_DEF_ARN=$(aws ecs list-task-definitions \
-            --family-prefix karuna-task \
-            --sort DESC \
-            --query 'taskDefinitionArns[0]' \
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition $TASK_FAMILY \
+            --query 'taskDefinition')
+
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq '
+            .containerDefinitions[0].image |= sub(":.*$"; ":latest") |
+            del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy
+            )')
+
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
-          if [ -z "$TASK_DEF_ARN" ] || [ "$TASK_DEF_ARN" = "None" ]; then
-            echo "No task definition found"
-            exit 1
-          fi
-
-          echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+          echo "TASK_DEF_ARN=$NEW_ARN" >> $GITHUB_ENV
 
       # -----------------------------
-      # Trigger CodeDeploy
+      # CodeDeploy (ALL AT ONCE)
       # -----------------------------
-      - name: Trigger CodeDeploy Deployment
+      - name: Trigger CodeDeploy
         run: |
-          APPSPEC_JSON=$(jq -n \
+          APPSPEC=$(jq -n \
             --arg taskdef "$TASK_DEF_ARN" \
             '{
               version: "1.0",
@@ -93,15 +113,15 @@ jobs:
             }')
 
           REVISION=$(jq -n \
-            --arg content "$APPSPEC_JSON" \
+            --arg content "$APPSPEC" \
             '{
               revisionType: "AppSpecContent",
               appSpecContent: { content: $content }
             }')
 
           aws deploy create-deployment \
-            --application-name karuna-strapi-codedeploy-app \
-            --deployment-group-name karuna-strapi-deployment-group \
-            --deployment-config-name CodeDeployDefault.ECSCanary10Percent5Minutes \
+            --application-name $CODEDEPLOY_APP \
+            --deployment-group-name $CODEDEPLOY_GROUP \
+            --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
             --revision "$REVISION" \
-            --description "GitHub Actions deployment using existing task"
+            --description "Terraform + CodeDeploy AllAtOnce"

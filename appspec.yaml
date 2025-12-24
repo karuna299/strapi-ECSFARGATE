@@ -1,9 +1,10 @@
-version: 0.0
+version: 1
 Resources:
   - TargetService:
       Type: AWS::ECS::Service
       Properties:
-        TaskDefinition: TASK_DEF_ARN
+        TaskDefinition: <TASK_DEFINITION>
         LoadBalancerInfo:
           ContainerName: karuna-strapi
           ContainerPort: 1337
+
