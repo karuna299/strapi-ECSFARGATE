@@ -231,7 +231,7 @@ resource "aws_lb_target_group" "karuna_tg_blue" {
   target_type = "ip"
 
   health_check {
-    path                = "/admin"
+    path                = "/"
     matcher             = "200-399"
     interval            = 30
     timeout             = 5
@@ -248,7 +248,7 @@ resource "aws_lb_target_group" "karuna_tg_green" {
   target_type = "ip"
 
   health_check {
-    path                = "/admin"
+    path                = "/"
     matcher             = "200-399"
     interval            = 30
     timeout             = 5
