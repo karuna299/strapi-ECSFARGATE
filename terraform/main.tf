@@ -342,6 +342,20 @@ resource "aws_codedeploy_deployment_group" "karuna_dg" {
     deployment_option = "WITH_TRAFFIC_CONTROL"
   }
 
+  blue_green_deployment_config {
+
+   deployment_ready_option {
+     action_on_timeout    = "CONTINUE_DEPLOYMENT"
+     wait_time_in_minutes = 0
+    }
+
+   terminate_blue_instances_on_deployment_success {
+     action                           = "TERMINATE"
+     termination_wait_time_in_minutes = 5
+    }
+  }
+
+
   ecs_service {
     cluster_name = aws_ecs_cluster.karuna_cluster.name
     service_name = aws_ecs_service.karuna_service.name
