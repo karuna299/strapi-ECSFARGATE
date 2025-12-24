@@ -25,7 +25,7 @@ jobs:
 
       # ---------- INFRA ----------
       - name: Terraform Init
-        run: terraform -chdir=terraform init -input=false
+        run: terraform -chdir=terraform init -- reconfigure -input=false
 
       - name: Terraform Apply
         run: |
