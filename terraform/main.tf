@@ -278,7 +278,7 @@ resource "aws_ecs_service" "karuna_service" {
   name            = "karuna-service"
   cluster         = aws_ecs_cluster.karuna_cluster.id
   task_definition = aws_ecs_task_definition.karuna_task.arn
-  desired_count   = 0
+  desired_count   = 1
 
   deployment_controller {
     type = "CODE_DEPLOY"
