@@ -371,13 +371,7 @@ resource "aws_codedeploy_deployment_group" "karuna_dg" {
       target_group { name = aws_lb_target_group.karuna_tg_green.name }
     }
   }
-
-  blue_green_deployment_config {
-    terminate_blue_instances_on_deployment_success {
-      action                           = "TERMINATE"
-      termination_wait_time_in_minutes = 5
-    }
-  }
+  
 }
 
 ##############################################
