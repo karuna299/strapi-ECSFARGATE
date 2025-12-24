@@ -1,4 +1,4 @@
-name: Terraform Deploy
+name: Terraform + CodeDeploy (ECS Blue/Green)
 
 on:
   workflow_dispatch:
@@ -7,25 +7,34 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+    env:
+      AWS_REGION: ap-south-1
 
-      - name: Configure AWS Credentials
+    steps:
+      # -----------------------------
+      # Checkout
+      # -----------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -----------------------------
+      # AWS Credentials
+      # -----------------------------
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # -----------------------------
+      # Terraform
+      # -----------------------------
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: "1.5.5"
+        uses: hashicorp/setup-terraform@v3
 
-      # ---------- INFRA ----------
-      - name: Terraform Init
-        run: terraform -chdir=terraform init -input=false
+      - name: Terraform Init (reconfigure)
+        run: terraform -chdir=terraform init -reconfigure
 
       - name: Terraform Apply
         run: |
@@ -38,27 +47,61 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
-      # ---------- DEPLOY ----------
-      - name: Render task definition
+      # -----------------------------
+      # Get EXISTING Task Definition
+      # (NO new task registration)
+      # -----------------------------
+      - name: Get latest ECS Task Definition
+        id: taskdef
         run: |
-          sed -i "s|<IMAGE_URI>|${{ secrets.ECR_REPOSITORY_URI }}:latest|g" taskdef.json
-          sed -i "s|REPLACE_EXEC_ROLE|${{ secrets.ECS_EXECUTION_ROLE_ARN }}|g" taskdef.json
-
-      - name: Register task definition
-        run: |
-          TASK_DEF_ARN=$(aws ecs register-task-definition \
-            --cli-input-json file://taskdef.json \
-            --query 'taskDefinition.taskDefinitionArn' \
+          TASK_DEF_ARN=$(aws ecs list-task-definitions \
+            --family-prefix karuna-task \
+            --sort DESC \
+            --query 'taskDefinitionArns[0]' \
             --output text)
+
+          if [ -z "$TASK_DEF_ARN" ] || [ "$TASK_DEF_ARN" = "None" ]; then
+            echo "No task definition found"
+            exit 1
+          fi
+
           echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
 
-      - name: Render appspec
+      # -----------------------------
+      # Trigger CodeDeploy
+      # -----------------------------
+      - name: Trigger CodeDeploy Deployment
         run: |
-          sed -i "s|TASK_DEF_ARN|${{ env.TASK_DEF_ARN }}|g" appspec.yaml
+          APPSPEC_JSON=$(jq -n \
+            --arg taskdef "$TASK_DEF_ARN" \
+            '{
+              version: "1.0",
+              Resources: [
+                {
+                  TargetService: {
+                    Type: "AWS::ECS::Service",
+                    Properties: {
+                      TaskDefinition: $taskdef,
+                      LoadBalancerInfo: {
+                        ContainerName: "karuna-strapi",
+                        ContainerPort: 1337
+                      }
+                    }
+                  }
+                }
+              ]
+            }')
 
-      - name: Trigger CodeDeploy
-        run: |
+          REVISION=$(jq -n \
+            --arg content "$APPSPEC_JSON" \
+            '{
+              revisionType: "AppSpecContent",
+              appSpecContent: { content: $content }
+            }')
+
           aws deploy create-deployment \
             --application-name karuna-strapi-codedeploy-app \
             --deployment-group-name karuna-strapi-deployment-group \
-            --revision revisionType=AppSpecContent,appSpecContent="{content=$(cat appspec.yaml)}"
+            --deployment-config-name CodeDeployDefault.ECSCanary10Percent5Minutes \
+            --revision "$REVISION" \
+            --description "GitHub Actions deployment using existing task"
