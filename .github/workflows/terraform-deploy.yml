@@ -15,9 +15,15 @@ jobs:
       APPSPEC_PATH: appspec.yaml
 
     steps:
+      # -----------------------------
+      # Checkout
+      # -----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -----------------------------
+      # AWS Credentials
+      # -----------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -25,9 +31,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # -----------------------------
+      # Install jq
+      # -----------------------------
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      # -----------------------------
+      # Terraform
+      # -----------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -48,14 +60,20 @@ jobs:
             -var="strapi_api_token_salt=${{ secrets.TF_VAR_strapi_api_token_salt }}" \
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
+      # -----------------------------
+      # Register new ECS Task Definition
+      # -----------------------------
       - name: Register new ECS task definition
-        run: | 
+        run: |
+          set -euo pipefail
+
           TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition $TASK_FAMILY \
-            --query 'taskDefinition' --output json)
- 
-          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq '
-            .containerDefinitions[0].image |= sub(":.*$"; ":${GITHUB_SHA}") |
+            --task-definition "$TASK_FAMILY" \
+            --query 'taskDefinition' \
+            --output json)
+
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg sha "$GITHUB_SHA" '
+            .containerDefinitions[0].image |= sub(":.*$"; ":" + $sha) |
             del(
               .taskDefinitionArn,
               .revision,
@@ -72,16 +90,22 @@ jobs:
             --output text)
 
           echo "TASK_DEF_ARN=$NEW_ARN" >> $GITHUB_ENV
- 
+          echo "Registered task definition: $NEW_ARN"
+
+      # -----------------------------
+      # CodeDeploy (AllAtOnce)
+      # -----------------------------
       - name: Trigger CodeDeploy
-        run: | 
+        run: |
+          set -euo pipefail
+
           APPSPEC_MODIFIED=$(sed "s|<<TASK_DEFINITION>>|${TASK_DEF_ARN}|g" "$APPSPEC_PATH")
 
           REVISION=$(jq -n \
             --arg content "$APPSPEC_MODIFIED" \
             '{revisionType: "AppSpecContent", appSpecContent: { content: $content }}')
 
-          aws deploy create-deployment \ 
+          aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
             --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
