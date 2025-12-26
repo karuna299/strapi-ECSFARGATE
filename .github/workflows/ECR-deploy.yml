@@ -5,12 +5,11 @@ on:
 
 jobs:
   build_and_push:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest 
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -19,17 +18,14 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
+      - name: Login to Amazon ECR 
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build, tag, and push Docker image
         run: |
-          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
           IMAGE_NAME=${{ secrets.ECR_REPOSITORY_NAME }}
-          IMAGE_TAG=latest
-          
-          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+          IMAGE_TAG=${GITHUB_SHA}
 
-          echo "IMAGE_URI=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG 

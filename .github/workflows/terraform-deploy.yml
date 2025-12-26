@@ -12,7 +12,7 @@ jobs:
       TASK_FAMILY: karuna-task
       CODEDEPLOY_APP: karuna-ecs-app
       CODEDEPLOY_GROUP: karuna-ecs-dg
-      APPSPEC_PATH: appspec.yaml   # file in repo; must exist
+      APPSPEC_PATH: appspec.yaml
 
     steps:
       - name: Checkout repository
@@ -49,16 +49,13 @@ jobs:
             -var="strapi_app_keys=${{ secrets.TF_VAR_strapi_app_keys }}"
 
       - name: Register new ECS task definition
-        id: register_task
-        run: |
-          set -euo pipefail
+        run: | 
           TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition "$TASK_FAMILY" \
+            --task-definition $TASK_FAMILY \
             --query 'taskDefinition' --output json)
-
-          # Force the image tag to :latest to ensure a new revision (adjust if you use specific tags)
+ 
           NEW_TASK_DEF=$(echo "$TASK_DEF" | jq '
-            .containerDefinitions[0].image |= sub(":.*$"; ":latest") |
+            .containerDefinitions[0].image |= sub(":.*$"; ":${GITHUB_SHA}") |
             del(
               .taskDefinitionArn,
               .revision,
@@ -75,30 +72,18 @@ jobs:
             --output text)
 
           echo "TASK_DEF_ARN=$NEW_ARN" >> $GITHUB_ENV
-          echo "Registered task definition: $NEW_ARN"
-
-      - name: Prepare AppSpec from file and Trigger CodeDeploy
-        run: |
-          set -euo pipefail
-
-          if [ ! -f "$APPSPEC_PATH" ]; then
-            echo "Error: $APPSPEC_PATH not found in repo root"
-            exit 1
-          fi
-
-          # Read appspec file and replace the placeholder with the new task def ARN
-          # Placeholder in appspec.yaml must be exactly: <<TASK_DEFINITION>>
+ 
+      - name: Trigger CodeDeploy
+        run: | 
           APPSPEC_MODIFIED=$(sed "s|<<TASK_DEFINITION>>|${TASK_DEF_ARN}|g" "$APPSPEC_PATH")
 
-          # Build the JSON revision payload with the appspec content
-          REVISION=$(jq -n --arg content "$APPSPEC_MODIFIED" '{revisionType: "AppSpecContent", appSpecContent: { content: $content }}')
+          REVISION=$(jq -n \
+            --arg content "$APPSPEC_MODIFIED" \
+            '{revisionType: "AppSpecContent", appSpecContent: { content: $content }}')
 
-          # Create deployment
-          aws deploy create-deployment \
+          aws deploy create-deployment \ 
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
             --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
             --revision "$REVISION" \
-            --description "Terraform + CodeDeploy AllAtOnce (AppSpec from file)"
-
-          echo "CodeDeploy deployment requested."
+            --description "Task 11 Deployment using Commit SHA"
